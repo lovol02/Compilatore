@@ -1,0 +1,1 @@
+/usr/bin/c++ -fPIC  -fno-rtti -shared -Wl,-soname,libTestPass.so -o libTestPass.so CMakeFiles/TestPass.dir/TestPass.cpp.o 
