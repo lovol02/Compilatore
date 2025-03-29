@@ -20,3 +20,4 @@ opt -load-pass-plugin ../build/libLocalOpts.so -passes=local-opts  OutPutFilenam
 lvm-dis prova.optimized.bc -o prova.optimized.ll
 
 
+prova
