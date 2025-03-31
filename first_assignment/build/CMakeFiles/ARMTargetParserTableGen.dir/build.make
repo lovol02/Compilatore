@@ -53,10 +53,10 @@ RM = /usr/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /home/peng/Downloads/LLVM-project/Lab_Compilatori1
+CMAKE_SOURCE_DIR = /home/peng/Downloads/LLVM-project/Compilatore/first_assignment
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /home/peng/Downloads/LLVM-project/Lab_Compilatori1/build
+CMAKE_BINARY_DIR = /home/peng/Downloads/LLVM-project/Compilatore/first_assignment/build
 
 # Utility rule file for ARMTargetParserTableGen.
 
@@ -78,6 +78,6 @@ CMakeFiles/ARMTargetParserTableGen.dir/clean:
 .PHONY : CMakeFiles/ARMTargetParserTableGen.dir/clean
 
 CMakeFiles/ARMTargetParserTableGen.dir/depend:
-	cd /home/peng/Downloads/LLVM-project/Lab_Compilatori1/build && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/peng/Downloads/LLVM-project/Lab_Compilatori1 /home/peng/Downloads/LLVM-project/Lab_Compilatori1 /home/peng/Downloads/LLVM-project/Lab_Compilatori1/build /home/peng/Downloads/LLVM-project/Lab_Compilatori1/build /home/peng/Downloads/LLVM-project/Lab_Compilatori1/build/CMakeFiles/ARMTargetParserTableGen.dir/DependInfo.cmake "--color=$(COLOR)"
+	cd /home/peng/Downloads/LLVM-project/Compilatore/first_assignment/build && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/peng/Downloads/LLVM-project/Compilatore/first_assignment /home/peng/Downloads/LLVM-project/Compilatore/first_assignment /home/peng/Downloads/LLVM-project/Compilatore/first_assignment/build /home/peng/Downloads/LLVM-project/Compilatore/first_assignment/build /home/peng/Downloads/LLVM-project/Compilatore/first_assignment/build/CMakeFiles/ARMTargetParserTableGen.dir/DependInfo.cmake "--color=$(COLOR)"
 .PHONY : CMakeFiles/ARMTargetParserTableGen.dir/depend
 

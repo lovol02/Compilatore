@@ -1,5 +1,5 @@
 CMakeFiles/LocalOpts.dir/LocalOpts.cpp.o: \
- /home/peng/Downloads/LLVM-project/Lab_Compilatori1/LocalOpts.cpp \
+ /home/peng/Downloads/LLVM-project/Compilatore/first_assignment/LocalOpts.cpp \
  /usr/include/stdc-predef.h \
  /home/peng/Downloads/LLVM-project/INSTALL/include/llvm/IR/LegacyPassManager.h \
  /home/peng/Downloads/LLVM-project/INSTALL/include/llvm/Support/CBindingWrapping.h \

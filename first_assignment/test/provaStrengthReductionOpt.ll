@@ -5,13 +5,20 @@ target triple = "x86_64-unknown-linux-gnu"
 
 ; Function Attrs: noinline nounwind uwtable
 define dso_local void @prova1(i32 noundef %0) #0 {
-  %2 = add nsw i32 %0, 1
+  %2 = add nsw i32 %0, 0
+  %3 = add nsw i32 %2, 1
+  %4 = sub nsw i32 %0, 0
+  %5 = add nsw i32 %4, 1
   ret void
 }
 
 ; Function Attrs: noinline nounwind uwtable
 define dso_local void @prova2(i32 noundef %0) #0 {
-  %2 = shl i32 %0, 1
+  %2 = mul nsw i32 %0, 1
+  %3 = mul nsw i32 1, %0
+  %4 = shl i32 %2, 1
+  %5 = sdiv i32 %0, 1
+  %6 = shl i32 %5, 1
   ret void
 }
 
@@ -34,13 +41,15 @@ define dso_local void @prova4(i32 noundef %0) #0 {
 define dso_local void @prova5(i32 noundef %0) #0 {
   %2 = add nsw i32 %0, 1
   %3 = add nsw i32 %0, 2
+  %4 = sub nsw i32 %2, 1
   ret void
 }
 
 ; Function Attrs: noinline nounwind uwtable
 define dso_local void @prova6(i32 noundef %0) #0 {
   %2 = add nsw i32 %0, 1
-  %3 = add nsw i32 %0, 1
+  %3 = sub nsw i32 %2, 1
+  %4 = add nsw i32 %3, 1
   ret void
 }
 
