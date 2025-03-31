@@ -27,6 +27,7 @@ opt -load-pass-plugin ../build/libLocalOpts.so -passes=local-opts  OutPutFilenam
 lvm-dis prova.optimized.bc -o prova.optimized.ll
 
 
+<<<<<<< HEAD
 //Or directly use command 
 
 opt -load-pass-plugin ../build/libLocalOpts.so -passes=local-opts  OutPutFilename1.ll -S -o OutPutFilename2.ll
@@ -49,3 +50,6 @@ opt -load-pass-plugin ../build/libLocalOpts.so -passes=MultiInst-Opt  provam2r.l
 
 
 
+=======
+prova
+>>>>>>> 16c1a24a7b3f71f2e56bae49f81d7ccf565363d7
