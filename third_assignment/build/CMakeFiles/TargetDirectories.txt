@@ -1,0 +1,9 @@
+/home/peng/Downloads/LLVM-project/Compilatore/third_assignment/build/CMakeFiles/intrinsics_gen.dir
+/home/peng/Downloads/LLVM-project/Compilatore/third_assignment/build/CMakeFiles/omp_gen.dir
+/home/peng/Downloads/LLVM-project/Compilatore/third_assignment/build/CMakeFiles/acc_gen.dir
+/home/peng/Downloads/LLVM-project/Compilatore/third_assignment/build/CMakeFiles/ARMTargetParserTableGen.dir
+/home/peng/Downloads/LLVM-project/Compilatore/third_assignment/build/CMakeFiles/AArch64TargetParserTableGen.dir
+/home/peng/Downloads/LLVM-project/Compilatore/third_assignment/build/CMakeFiles/RISCVTargetParserTableGen.dir
+/home/peng/Downloads/LLVM-project/Compilatore/third_assignment/build/CMakeFiles/LoopPass.dir
+/home/peng/Downloads/LLVM-project/Compilatore/third_assignment/build/CMakeFiles/edit_cache.dir
+/home/peng/Downloads/LLVM-project/Compilatore/third_assignment/build/CMakeFiles/rebuild_cache.dir
