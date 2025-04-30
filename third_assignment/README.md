@@ -10,7 +10,7 @@ To create the build directory
 • cmake -DLT_LLVM_INSTALL_DIR=$LLVM_DIR <source/dir/test/pass>/
 • make
 </pre>  
-To generate the llvm code  
+To generate the llvm code, enter the <b>text</b> folder, and run following command:  
 <pre>
 clang -Xclang -disable-O0-optnone -S -emit-llvm -O0 -c Inputfilename.c -o Output.ll
 </pre>  
