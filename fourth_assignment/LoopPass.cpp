@@ -63,17 +63,10 @@ bool IsSimplifyForm(Loop* L1){
   return false;
 }
 
-//Maybe is better to call if has icmp instruction
 BasicBlock* IsGuardedBlock(Loop* L1,SmallVector<Loop *, 8> Worklist){
   BasicBlock *guardBlock=nullptr;
   BasicBlock *Preheader= L1->getLoopPreheader();
-  /*
-  //verify if it is simplified loop, if has preheadedr true, but always false, even my loop has preheader,exit, and only one single backedge
-  if(L1->isLoopSimplifyForm()){
-    errs()<<"Not simply form\n";
-    return nullptr;
-  }
-    */
+
   if(!Preheader){
     errs()<<"Not find the header of loop\n";
     return guardBlock;
@@ -84,17 +77,14 @@ BasicBlock* IsGuardedBlock(Loop* L1,SmallVector<Loop *, 8> Worklist){
   if(guardBlock){
     for(Loop* L : Worklist){
       if(L->getHeader() == guardBlock){
-        return nullptr;
+        return IsGuardedBlock(L,Worklist);
       }
     }
     if(BranchInst* BI= dyn_cast<BranchInst>(guardBlock->getTerminator())){
       if(BI->isConditional()){
-        BasicBlock* succ= BI->getSuccessor(0);
-        BasicBlock* succ1= BI->getSuccessor(1);
-        if((L1->contains(succ) && !(L1->contains(succ1))) || (L1->contains(succ1) && !(L1->contains(succ)))){
-          errs()<<"Guard block\n";
-          return guardBlock;
-        }
+        errs()<<"Guard block\n";
+        return guardBlock;
+        
       }
     }
 
@@ -188,7 +178,6 @@ bool AdjacencyCheckForGuardedLoop(Loop* L1, Loop* L2,BasicBlock* GuardedBlock,Ba
 bool AdjacencyCheckForLoop(Loop* L1, Loop* L2){
   //verifico solamente se il non loop successore di L1 e' uguale al preheader di L2 or no, 
   //la viceversa va eseguito un altra volta con posizione inverso 
-  errs()<<"Its not guarded loop "<<&L1<<"\n";
   BasicBlock *preheader = L1->getLoopPreheader();
   BasicBlock *preheader1 = L2->getLoopPreheader();
   if((!preheader) || (!preheader1)){
@@ -250,6 +239,30 @@ bool HaveSameLoopCount(Loop* L1, Loop* L2,ScalarEvolution &SE){
   return false;
 
 }
+
+
+PHINode* getInductionVariable(Loop* L1){
+  BasicBlock* header=L1->getHeader();
+  for(Instruction &I : *header){
+    if(PHINode *phi = dyn_cast<PHINode>(&I)){
+      return phi;
+    }
+  }
+  return nullptr;
+}
+
+BasicBlock *findLatch(Loop *L) {
+    BasicBlock *Header = L->getHeader();
+
+    for (BasicBlock *Pred : predecessors(Header)) {
+        if (L->contains(Pred)) {
+            // This predecessor inside the loop is the latch block
+            return Pred;
+        }
+    }
+    return nullptr;
+}
+
 bool HasNegativeDependence(Loop* FirstLoop, Loop* NextLoop,DependenceInfo &DI,ScalarEvolution &SE){
   SmallVector<Instruction *, 8> StoreInsts;
   SmallVector<Instruction *, 8> LoadInsts;
@@ -270,6 +283,20 @@ bool HasNegativeDependence(Loop* FirstLoop, Loop* NextLoop,DependenceInfo &DI,Sc
         }
     }
   }
+  int stepVal=0;
+  //Is induction variable creasing or decreasing?
+  PHINode* inductionL1=getInductionVariable(FirstLoop);
+  const SCEV *S = SE.getSCEV(inductionL1);
+  if (const SCEVAddRecExpr *AR = dyn_cast<SCEVAddRecExpr>(S)) {
+    const SCEV *Step = AR->getStepRecurrence(SE);
+    if (const SCEVConstant *C = dyn_cast<SCEVConstant>(Step)) {
+    stepVal = C->getAPInt().getSExtValue();
+    }
+  }
+  errs()<<"The induction variable is "<<stepVal<<"\n";
+  /*
+  For case store first then use it
+  */
   
   for(Instruction *I : StoreInsts){
     //auto *storeInst = dyn_cast<StoreInst>(I);
@@ -362,29 +389,6 @@ bool HasNegativeDependence(Loop* FirstLoop, Loop* NextLoop,DependenceInfo &DI,Sc
   }
   
   return false;
-}
-
-
-PHINode* getInductionVariable(Loop* L1){
-  BasicBlock* header=L1->getHeader();
-  for(Instruction &I : *header){
-    if(PHINode *phi = dyn_cast<PHINode>(&I)){
-      return phi;
-    }
-  }
-  return nullptr;
-}
-
-BasicBlock *findLatch(Loop *L) {
-    BasicBlock *Header = L->getHeader();
-
-    for (BasicBlock *Pred : predecessors(Header)) {
-        if (L->contains(Pred)) {
-            // This predecessor inside the loop is the latch block
-            return Pred;
-        }
-    }
-    return nullptr;
 }
 
 
@@ -844,6 +848,7 @@ struct LocalOpts: PassInfoMixin<LocalOpts> {
           else{
             errs()<<"second is not guraded\n";
           }
+
           if(guardedblock && guardedblock1){
               errs()<<"first guarded block:\n"<<*guardedblock<<"\nsecond guarded block:\n"<<*guardedblock1<<"\n";
               if(isEqual(guardedblock,guardedblock1)){
@@ -918,7 +923,7 @@ struct LocalOpts: PassInfoMixin<LocalOpts> {
                 
               }
             }
-
+            errs()<<"They aren't adjacent\n";
           }
 
         }
