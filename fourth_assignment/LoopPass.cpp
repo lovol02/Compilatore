@@ -305,6 +305,8 @@ bool HasNegativeDependence(Loop* FirstLoop, Loop* NextLoop,DependenceInfo &DI,Sc
         Value* ptrLoad = loadInst->getPointerOperand();
         const SCEV *loadSCEV = SE.getSCEV(ptrLoad);
         const SCEV *storeSCEV = SE.getSCEV(ptrStore);
+        //The following operation return a expression in SCEV, instead a constant in SCEV, 
+        //so the better way is extract the contante value separately from different SCEV object then compare them
         const SCEV *Diff = SE.getMinusSCEV(storeSCEV, loadSCEV);
         errs()<<"load "<<*loadSCEV<<"\nstore "<<*storeSCEV<<"\nin SCEVAddExpr\n"<<*Diff<<"\n";
         const SCEVAddRecExpr *AddRec = dyn_cast<SCEVAddRecExpr>(storeSCEV);
