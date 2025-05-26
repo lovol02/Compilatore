@@ -253,7 +253,8 @@ bool HaveSameLoopCount(Loop* L1, Loop* L2,ScalarEvolution &SE){
 bool HasNegativeDependence(Loop* FirstLoop, Loop* NextLoop,DependenceInfo &DI,ScalarEvolution &SE){
   SmallVector<Instruction *, 8> StoreInsts;
   SmallVector<Instruction *, 8> LoadInsts;
-  
+  //The following two block only take the storeInst in the first loop and the loadInst of the second, 
+  //to the if im accessing the location which is still not write
   for(BasicBlock *BB : FirstLoop->getBlocks()){
     for(Instruction &Inst: *BB){
       if(isa<StoreInst>(&Inst)){
