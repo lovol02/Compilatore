@@ -36,7 +36,10 @@ struct PairOfLoop {
     Loop *L1;
     Loop *L2;
 };
-
+struct PairOfBB{
+  BasicBlock *B1;
+  BasicBlock *B2;
+};
 
 //-----------------------------------------------------------------------------
 // LocalOpts implementation
@@ -74,15 +77,39 @@ BasicBlock* IsGuardedBlock(Loop* L1,SmallVector<Loop *, 8> Worklist){
   errs()<<"preheader: "<<*Preheader<<"\n";
 
   guardBlock = Preheader->getSinglePredecessor();
+  //errs()<<"BB\n"<<*guardBlock<<"\n";
   if(guardBlock){
+    /*
+    int isUncond=0;
+    if(BranchInst* BI=dyn_cast<BranchInst>(guardBlock->getTerminator())){
+      if(BI->isUnconditional()){
+        isUncond=1;
+      }
+    }
+    while(isUncond){
+      //todo
+      guardBlock = guardBlock->getSinglePredecessor();
+      if(BranchInst* BI=dyn_cast<BranchInst>(guardBlock->getTerminator())){
+        if(BI->isConditional()){
+          isUncond=0;
+        }
+      }
+    }
+    */
+    errs()<<*guardBlock<<"\n";
     for(Loop* L : Worklist){
       if(L->getHeader() == guardBlock){
+        //jumped from another loop
+        return IsGuardedBlock(L,Worklist);
+      }
+      else if(L->getLoopLatch() == guardBlock){
+        //il predecessor of current loop point to the latch of another loop, that means it is one jumped from another one, and it sure have the same property guard
         return IsGuardedBlock(L,Worklist);
       }
     }
     if(BranchInst* BI= dyn_cast<BranchInst>(guardBlock->getTerminator())){
       if(BI->isConditional()){
-        errs()<<"Guard block\n";
+        errs()<<"Guard block\n"<<*guardBlock<<"\n";
         return guardBlock;
         
       }
@@ -129,6 +156,21 @@ bool AdjacencyCheckForGuardedLoop(Loop* L1, Loop* L2,BasicBlock* GuardedBlock,Ba
     if (BI->isConditional()) {
       for(int i=0;i<BI->getNumSuccessors();i++){
         BasicBlock *Succ = BI->getSuccessor(i);
+        /*
+        while(true){
+          if(Succ->size()==1 && isa<BranchInst>(Succ->getTerminator())){
+            //In this case sure it will be a unbranch
+            BranchInst* BI = dyn_cast<BranchInst>(Succ->getTerminator());
+            if(BI->isUnconditional()){
+              Succ=Succ->getSingleSuccessor();
+            }
+          }
+          else{
+            break;
+          }
+        }
+        */
+        Succ=Succ->getSinglePredecessor();
         if(preheader != Succ){
           if(Succ != GuardedBlock1){
             continue;
@@ -178,6 +220,7 @@ bool AdjacencyCheckForGuardedLoop(Loop* L1, Loop* L2,BasicBlock* GuardedBlock,Ba
 bool AdjacencyCheckForLoop(Loop* L1, Loop* L2){
   //verifico solamente se il non loop successore di L1 e' uguale al preheader di L2 or no, 
   //la viceversa va eseguito un altra volta con posizione inverso 
+  errs()<<"L1 "<<*L1<<"\nL2 "<<*L2<<"\n";
   BasicBlock *preheader = L1->getLoopPreheader();
   BasicBlock *preheader1 = L2->getLoopPreheader();
   if((!preheader) || (!preheader1)){
@@ -193,10 +236,55 @@ bool AdjacencyCheckForLoop(Loop* L1, Loop* L2){
   L1->getExitBlocks(exitBlocks);
   for (BasicBlock *exit : exitBlocks) {
     errs()<<*exit<<"\n";
-      if (exit == preheader1) {
-          return true; // A way that L1's exit block is in the preheader of L2
+    while(true){
+      if(exit->size()==1 && isa<BranchInst>(exit->getTerminator())){
+        //In this case sure it will be a unbranch
+        BranchInst* BI = dyn_cast<BranchInst>(exit->getTerminator());
+        if(BI->isUnconditional()){
+          exit=exit->getSingleSuccessor();
+        }
       }
+      else{
+        break;
+      }
+    }
+    /*
+    exit=exit->getSinglePredecessor();
+    if (exit == preheader1) {
+        return true; // A way that L1's exit block is in the preheader of L2
+    }
+    */
+   if(exit == L2->getHeader()){
+    return true;
+   }
   }
+  /*
+  L2->getExitBlocks(exitBlocks);
+  for (BasicBlock *exit : exitBlocks) {
+    errs()<<*exit<<"\n";
+    while(true){
+      if(exit->size()==1 && isa<BranchInst>(exit->getTerminator())){
+        //In this case sure it will be a unbranch
+        BranchInst* BI = dyn_cast<BranchInst>(exit->getTerminator());
+        if(BI->isUnconditional()){
+          exit=exit->getSingleSuccessor();
+        }
+      }
+      else{
+        break;
+      }
+    }
+    /*
+    exit=exit->getSinglePredecessor();
+    if (exit == preheader1) {
+        return true; // A way that L1's exit block is in the preheader of L2
+    }
+    
+   if(exit == L1->getHeader()){
+    return true;
+   }
+  }
+  */
   return false;
 }
 
@@ -266,6 +354,9 @@ BasicBlock *findLatch(Loop *L) {
 bool HasNegativeDependence(Loop* FirstLoop, Loop* NextLoop,DependenceInfo &DI,ScalarEvolution &SE){
   SmallVector<Instruction *, 8> StoreInsts;
   SmallVector<Instruction *, 8> LoadInsts;
+  //for case third and fourth
+  SmallVector<Instruction *, 8> StoreInsts1; //in this case for L2
+  SmallVector<Instruction *, 8> LoadInsts1; //in this case for L1
   //The following two block only take the storeInst in the first loop and the loadInst of the second, 
   //to the if im accessing the location which is still not write
   for(BasicBlock *BB : FirstLoop->getBlocks()){
@@ -273,14 +364,20 @@ bool HasNegativeDependence(Loop* FirstLoop, Loop* NextLoop,DependenceInfo &DI,Sc
       if(isa<StoreInst>(&Inst)){
         StoreInsts.push_back(&Inst);
       }
+      else if(isa<LoadInst>(&Inst)){
+        LoadInsts1.push_back(&Inst);
+      }
     }
   }
   
   for(BasicBlock* BB1: NextLoop->getBlocks()){
     for(Instruction &Inst1 : *BB1){
-        if(isa<LoadInst>(&Inst1)){
-          LoadInsts.push_back(&Inst1);
-        }
+      if(isa<LoadInst>(&Inst1)){
+        LoadInsts.push_back(&Inst1);
+      }
+      else if(isa<StoreInst>(&Inst1)){
+        StoreInsts1.push_back(&Inst1);
+      }
     }
   }
   int stepVal=0;
@@ -294,6 +391,44 @@ bool HasNegativeDependence(Loop* FirstLoop, Loop* NextLoop,DependenceInfo &DI,Sc
     }
   }
   errs()<<"The induction variable is "<<stepVal<<"\n";
+  /*
+  why needed?
+  case 1 for negative dep
+    if(N>0){
+        for(int i=0;i<N;i++){
+        array1[i]=i;
+        }
+    }
+    if(N>0){
+        for(int i=0;i<N;i++){
+        array2[i]=array1[i+1]+1;
+        }
+    }
+  case 2 for negative dep
+    for(int i=20;i>0;i--){
+        array1[i]=i;
+    }
+    for(int i=20;i>0;i--){
+        array2[i]=array1[i-1]+1;
+    }
+  case 3 for negative dep
+    for(int i=19;i>0;i--){
+        array2[i]=array1[i];
+        
+    }
+    for(int i=19;i>0;i--){
+        array1[i-1]=i;
+    }
+  case 4 for negative dep
+    for(int i=0;i<20;i++){
+        array2[i]=array1[i];
+        
+    }
+    for(int i=0;i<20;i++){
+        array1[i+1]=i;
+    }
+  */
+
   /*
   For case store first then use it
   */
@@ -343,11 +478,21 @@ bool HasNegativeDependence(Loop* FirstLoop, Loop* NextLoop,DependenceInfo &DI,Sc
           errs()<<AddRec1->getStart()<<"\n"<< AddRec->getStart()<<"\n";
           errs()<<AddRec1->getOperand(0)<<"\n"<<AddRec->getOperand(0)<<"\n";
           errs()<<AddRec1->getOperand(1)<<"\n"<<AddRec->getOperand(1)<<"\n";
-          if (AddRec1->getStart() > AddRec->getStart()) {
+          if(stepVal>0){
+            if (AddRec1->getStart() > AddRec->getStart()) {
               // The AddRecExprs are equal
               errs() << "negative, read before write\n";
               return true;
+            }
           }
+          else if(stepVal<0){
+            if (AddRec1->getStart() < AddRec->getStart()) {
+              // The AddRecExprs are equal
+              errs() << "negative, read before write\n";
+              return true;
+            }
+          }
+
         }
         /*
         if (const SCEVAddExpr *AddExpr = dyn_cast<SCEVAddExpr>(Diff)) {
@@ -382,7 +527,49 @@ bool HasNegativeDependence(Loop* FirstLoop, Loop* NextLoop,DependenceInfo &DI,Sc
         */
       }
       else{
-        errs()<<"Non dependencies found\n";
+        errs()<<"Non dependencies found in store first read after\n";
+      }
+    
+    } 
+  }
+  for(Instruction *I : LoadInsts1){
+    for(Instruction *I1 : StoreInsts1 ){
+
+    
+    //If I1 depends to I
+      auto Dep = DI.depends(I1, I, true);
+      if (Dep) {
+        errs()<<"find dep\n";
+        auto *loadInst = dyn_cast<LoadInst>(I);
+        auto *storeInst = dyn_cast<StoreInst>(I1);
+        Value* ptrStore = storeInst->getPointerOperand();
+        Value* ptrLoad = loadInst->getPointerOperand();
+        const SCEV *loadSCEV = SE.getSCEV(ptrLoad);
+        const SCEV *storeSCEV = SE.getSCEV(ptrStore);
+
+        const SCEVAddRecExpr *AddRec1 = dyn_cast<SCEVAddRecExpr>(storeSCEV);
+        const SCEVAddRecExpr *AddRec = dyn_cast<SCEVAddRecExpr>(loadSCEV);
+        if( AddRec && AddRec1 ){
+          //logic same as the case before
+          if(stepVal>0){
+            if (AddRec1->getStart() > AddRec->getStart()) {
+              // The AddRecExprs are equal
+              errs() << "negative, read before write\n";
+              return true;
+            }
+          }
+          else if(stepVal<0){
+            if (AddRec1->getStart() < AddRec->getStart()) {
+              // The AddRecExprs are equal
+              errs() << "write after read found\n";
+              return true;
+            }
+          }
+
+        }
+      }
+      else{
+        errs()<<"No write after read found\n";
       }
     
     } 
@@ -501,14 +688,13 @@ void LoopFusion(Loop* L1,Loop* L2, SmallVector<Loop *, 8> Worklist,LoopInfo &LI,
   }
   
 
-
-
   errs()<<"Induction variable moving....\n";
   if (inductionL2->use_empty()){
     inductionL2->eraseFromParent();
   }
   errs()<<"Induction variable moved....\nBasicBlock in L2 after modification of induction variable\n";
   int icmpflag=0,removeheader=1;
+
   //move the body
   for(BasicBlock* BB : L2->getBlocks()){
     if(BB == L2Header){
@@ -516,12 +702,12 @@ void LoopFusion(Loop* L1,Loop* L2, SmallVector<Loop *, 8> Worklist,LoopInfo &LI,
       for(Instruction &Inst : *BB){
         if(isa<ICmpInst>(&Inst)){
           icmpflag++;
-          
         }
+
       }
       if(icmpflag>0){
-        continue;
         errs()<<"header of L2\n"<<*BB<<"\nContain ICmpInstruction\n";
+
       }
       else{
         removeheader=0;
@@ -544,30 +730,115 @@ void LoopFusion(Loop* L1,Loop* L2, SmallVector<Loop *, 8> Worklist,LoopInfo &LI,
     }
   }
 
+  SmallVector<PHINode*, 4> InstMoved;
+  for (auto &I : *L2Header) {
+    if (auto *phi = dyn_cast<PHINode>(&I)) {
+      errs()<<"Phi :\n"<<*phi<<"\n";
+      PHINode *phiNew = PHINode::Create(phi->getType(), phi->getNumIncomingValues(), "", inductionL1->getNextNode());
+      for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i) {
+        Value *incomingVal = phi->getIncomingValue(i);
+        BasicBlock *incomingBB = phi->getIncomingBlock(i);
+        errs()<<"Incoming block:\n"<<*incomingBB<<"\nhas value"<<*incomingVal<<"\n";
+        // Decide where to set the incoming block
+        BasicBlock *newIncomingBB = nullptr;
+        //the block moved from loop has origin contained by L2
+        if (L2->contains(incomingBB)) {
+          errs()<<"containde by L2\n";
+          newIncomingBB = L1Latch;
+        } else {
+          newIncomingBB = L1->getLoopPreheader();
+        }
+        phiNew->addIncoming(incomingVal, newIncomingBB);
+      }
+      phi->replaceAllUsesWith(phiNew);
+      InstMoved.push_back(phiNew);
+    }
+  }
+
+  errs()<<"-------------------------------------\n";
+  for(PHINode* PHIN : InstMoved){
+    errs()<<"the phinode"<<*PHIN<<"\n";
+  }
+  
+  
   
   
   if( L2->getLoopPreheader()){
     //in case guarded, the guarded is loopheader...So this if isn't needed.
     errs()<<"Loop preheader\n"<<*L2->getLoopPreheader()<<"\n";
+    BasicBlock* preheader=L2->getLoopPreheader();
+    for(Instruction& Inst: *preheader){
+      if(!isa<BranchInst> (Inst)){
+        Inst.moveBefore(L1->getLoopPreheader()->getTerminator());
+      }
+    }
     L2->getLoopPreheader()->eraseFromParent();
   }
   if( L2->getLoopLatch()){
 
-    errs()<<"Loop preheader\n"<<*L2->getLoopLatch()<<"\n";
+    errs()<<"Loop latch\n"<<*L2->getLoopLatch()<<"\n";
     L2->getLoopLatch()->eraseFromParent();
   }
   if(removeheader){
+    errs()<<"erasing header\n";
     L2->getHeader()->eraseFromParent();
   }
   
-
-  LI.erase(L2);
-
+  //If the loop to be remove is a child loop, we need distach it from its parent!!!
+  if (Loop *parent = L2->getParentLoop()) {
+      parent->removeChildLoop(L2);  // Detaches from parent
+  } else {
+      LI.erase(L2);  
+  }
+  
   
 
+  SmallVector<PairOfBB,8> BBToReplace;
+  BasicBlock* nextBB=nullptr;
+  BBToReplace.clear();
+  errs()<<"printing the new loop1 (version after motion)\n";
   for(BasicBlock* BB : L1->getBlocks()){
-    errs()<<". Block in L1:\n"<<*BB<<"\n";
+    errs()<<"Block in L1:\n"<<*BB<<"\n";
+    if(BB->size()==1 && isa<BranchInst>(BB->getTerminator())){
+      BranchInst* BI= dyn_cast<BranchInst>(BB->getTerminator());
+      if(BI->isUnconditional()){
+        nextBB=BB->getSingleSuccessor();
+        if(nextBB->size()==1 && isa<BranchInst>(nextBB->getTerminator())){
+          BranchInst* BI1= dyn_cast<BranchInst>(nextBB->getTerminator());
+          if(BI1->isUnconditional()){
+            BBToReplace.push_back({BB,nextBB});
+          }
+        }
+      }
+    }
   }
+  if(!BBToReplace.empty()){
+    auto BBbegin= BBToReplace.begin();
+    auto BBend=BBToReplace.end();
+    while(BBbegin != BBend){
+      BasicBlock* B1 = BBbegin->B1;
+      BasicBlock* B2 = BBbegin->B2;
+      errs()<<"redundant br in BB1 \n"<<*B1<<"\nAND\n"<<*B2<<"\n";
+      BranchInst *oldBr = dyn_cast<BranchInst>(B1->getTerminator());
+      BasicBlock *succ = B2->getSingleSuccessor();
+      oldBr->eraseFromParent();
+      BranchInst::Create(succ, B1);
+      B2->replaceAllUsesWith(B1);
+
+      if (B2->use_empty()) {
+          B2->eraseFromParent();
+      } else {
+          errs() << "Warning: Tried to erase B2 but it's still in use.\n";
+      }
+      errs()<<"actual B1\n"<<*B1<<"\n";
+      ++BBbegin;
+    }
+  }
+  else{
+    errs()<<"BB is empty\n";
+  }
+
+  
 
 }
 
@@ -698,13 +969,16 @@ void LoopFusionForGuarded(Loop* L1,Loop* L2, SmallVector<Loop *, 8> Worklist,Loo
     inductionL2->eraseFromParent();
   }
   errs()<<"Induction variable moved....\n";
+
+
   
   //redirection
   if(isa<BranchInst>(L2EndBody->getTerminator())){
     BranchInst *L2BI = dyn_cast<BranchInst>(L2EndBody->getTerminator());
     if(!L2BI->isConditional()){
+      errs()<<"L2's successor(before):\n"<<*L2EndBody->getTerminator()->getSuccessor(0)<<"\n";
       L2EndBody->getTerminator()->setSuccessor(0,L1Latch);
-      
+      errs()<<"L2's successor(after):\n"<<*L2EndBody->getTerminator()->getSuccessor(0)<<"\n";
       if(L1NoLoopIndex!=-1){
         errs()<<"Modifying the non loop exit\nbefore\n"<<*BI1->getSuccessor(L1NoLoopIndex)<<"\n";
         BI1->setSuccessor(L1NoLoopIndex,L2NoLoopExit);
@@ -721,21 +995,54 @@ void LoopFusionForGuarded(Loop* L1,Loop* L2, SmallVector<Loop *, 8> Worklist,Loo
   }
   errs()<<"End of redirection\n";
 
+  errs()<<"-----------------------------------\n";
+  for(BasicBlock* BB : L1->getBlocks()){
+    errs()<<". Block in L1:\n"<<*BB<<"\n";
+  }
+  errs()<<"L1 latch"<<*L1->getLoopLatch()<<"\n";
+  errs()<<"-----------------------------------\n";
 
   int icmpflag=0,removeheader=1;
   //move the body
+  errs()<<"the header of l2"<<*L2Header<<"\n";
+
   for(BasicBlock* BB : L2->getBlocks()){
     errs()<<"block of L2(including header and latch)\n"<<*BB<<"\n";
+    
     if(BB == L2Header){
+      errs()<<"find header\n";
       icmpflag=0;
       for(Instruction &Inst : *BB){
         if(isa<ICmpInst>(&Inst)){
           icmpflag++;
         }
+
       }
+      //int moveflag=0,index;
       if(icmpflag>0){
-        continue;
         errs()<<"header of L2\n"<<*BB<<"\nContain ICmpInstruction\n";
+        /*
+        Instruction* nextL1Ind=inductionL1->getNextNode();
+        for(Instruction *Inst : InstToMove){
+          PHINode *phiOld = cast<PHINode>(Inst);
+          //create new phinode to replace the old one
+          PHINode *phiNew = PHINode::Create(phiOld->getType(), phiOld->getNumIncomingValues(), "", nextL1Ind);
+          for (unsigned i = 0, e = phiOld->getNumIncomingValues(); i != e; ++i) {
+            errs()<<"Incoming value for old phi:\n"<<*phiOld->getIncomingValue(i)<<"\n";
+            Value *incomingVal = phiOld->getIncomingValue(i);
+            BasicBlock *incomingBlock = phiOld->getIncomingBlock(i);
+            phiNew->addIncoming(incomingVal, incomingBlock);
+          }
+          
+          phiOld->replaceAllUsesWith(phiNew);
+          InstMoved.push_back(phiNew);
+          for (unsigned i = 0; i < phiNew->getNumIncomingValues(); ++i){
+            errs()<<"Incoming value for new phi:\n"<<*phiNew->getIncomingValue(i)<<"\n";
+          }
+          errs()<<"The new PHI:\n"<<*phiNew<<"\n";
+        }
+        */
+        
       }
       else{
         removeheader=0;
@@ -758,7 +1065,35 @@ void LoopFusionForGuarded(Loop* L1,Loop* L2, SmallVector<Loop *, 8> Worklist,Loo
 
     }
   }
+  SmallVector<PHINode*, 4> InstMoved;
+  for (auto &I : *L2Header) {
+    if (auto *phi = dyn_cast<PHINode>(&I)) {
+      errs()<<"Phi :\n"<<*phi<<"\n";
+      PHINode *phiNew = PHINode::Create(phi->getType(), phi->getNumIncomingValues(), "", inductionL1->getNextNode());
+      for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i) {
+        Value *incomingVal = phi->getIncomingValue(i);
+        BasicBlock *incomingBB = phi->getIncomingBlock(i);
+        errs()<<"Incoming block:\n"<<*incomingBB<<"\nhas value"<<*incomingVal<<"\n";
+        // Decide where to set the incoming block
+        BasicBlock *newIncomingBB = nullptr;
+        //the block moved from loop has origin contained by L2
+        if (L2->contains(incomingBB)) {
+          errs()<<"containde by L2\n";
+          newIncomingBB = L1Latch;
+        } else {
+          newIncomingBB = L1->getLoopPreheader();
+        }
+        phiNew->addIncoming(incomingVal, newIncomingBB);
+      }
+      phi->replaceAllUsesWith(phiNew);
+      InstMoved.push_back(phiNew);
+    }
+  }
 
+  errs()<<"-------------------------------------\n";
+  for(PHINode* PHIN : InstMoved){
+    errs()<<"the phinode"<<*PHIN<<"\n";
+  }
   
   
   
@@ -771,13 +1106,19 @@ void LoopFusionForGuarded(Loop* L1,Loop* L2, SmallVector<Loop *, 8> Worklist,Loo
   
   
   if( L2->getLoopPreheader()){
-    //in case guarded, the guarded is loopheader...So this if isn't needed.
     errs()<<"Loop preheader\n"<<*L2->getLoopPreheader()<<"\n";
+    //In the case like some assignment, move to the L1's preheader
+    BasicBlock* preheader=L2->getLoopPreheader();
+    for(Instruction& Inst: *preheader){
+      if(!isa<BranchInst> (Inst)){
+        Inst.moveBefore(L1->getLoopPreheader()->getTerminator());
+      }
+    }
     L2->getLoopPreheader()->eraseFromParent();
   }
   if( L2->getLoopLatch()){
 
-    errs()<<"Loop preheader\n"<<*L2->getLoopLatch()<<"\n";
+    errs()<<"Loop latch\n"<<*L2->getLoopLatch()<<"\n";
     L2->getLoopLatch()->eraseFromParent();
   }
 
@@ -787,16 +1128,226 @@ void LoopFusionForGuarded(Loop* L1,Loop* L2, SmallVector<Loop *, 8> Worklist,Loo
     L2->getHeader()->eraseFromParent();
   }
   
-  LI.erase(L2);
+  //If the loop to be remove is a child loop, we need distach it from its parent!!!
+  if (Loop *parent = L2->getParentLoop()) {
+      parent->removeChildLoop(L2);  // Detaches from parent
+  } else {
+      LI.erase(L2);  
+  }
 
+  SmallVector<PairOfBB,8> BBToReplace;
+  BasicBlock* nextBB=nullptr;
   errs()<<"printing the new loop1 (version after motion)\n";
   for(BasicBlock* BB : L1->getBlocks()){
     errs()<<"Block in L1:\n"<<*BB<<"\n";
+    if(BB->size()==1 && isa<BranchInst>(BB->getTerminator())){
+      BranchInst* BI= dyn_cast<BranchInst>(BB->getTerminator());
+      if(BI->isUnconditional()){
+        nextBB=BB->getSingleSuccessor();
+        if(nextBB->size()==1 && isa<BranchInst>(nextBB->getTerminator())){
+          BranchInst* BI= dyn_cast<BranchInst>(BB->getTerminator());
+          if(BI->isUnconditional()){
+            BBToReplace.push_back({BB,nextBB});
+          }
+        }
+      }
+    }
   }
+  if(!BBToReplace.empty()){
+    auto BBbegin= BBToReplace.begin();
+    auto BBend=BBToReplace.end();
+    while(BBbegin != BBend){
+      BasicBlock* B1 = BBbegin->B1;
+      BasicBlock* B2 = BBbegin->B2;
+      errs()<<"redundant br in BB1 \n"<<*B1<<"\nAND\n"<<*B2<<"\n";
+      BranchInst *oldBr = dyn_cast<BranchInst>(B1->getTerminator());
+      BasicBlock *succ = B2->getSingleSuccessor();
+      oldBr->eraseFromParent();
+      BranchInst::Create(succ, B1);
+      B2->replaceAllUsesWith(B1);
 
+      if (B2->use_empty()) {
+          B2->eraseFromParent();
+      } else {
+          errs() << "Warning: Tried to erase B2 but it's still in use.\n";
+      }
+      errs()<<"actual B1\n"<<*B1<<"\n";
+      ++BBbegin;
+    }
+  }
   
 }
 
+void loop_fusion(SmallVector<Loop *, 8> Worklist,LoopInfo &LI,DominatorTree &DT,PostDominatorTree &PDT,DependenceInfo &DI, ScalarEvolution &SE,Function &F){
+  SmallVector<PairOfLoop, 8> LoopFusionList;
+
+  int allNoGuardFlag=0;
+  for (auto *Loop : Worklist) {
+    for(auto *Loop1 : Worklist){
+      if(Loop != Loop1){
+        errs()<<"begin comparison\n";
+        BasicBlock* guardedblock=IsGuardedBlock(Loop,Worklist);
+        BasicBlock* guardedblock1=IsGuardedBlock(Loop1,Worklist);
+        if(guardedblock){
+          errs()<<"first is guraded\n";
+        }
+        else{
+          errs()<<"first is not guraded\n";
+        }
+
+        if(guardedblock1){
+          errs()<<"second is guarded\n";
+        }
+        else{
+          errs()<<"second is not guraded\n";
+        }
+
+        if(guardedblock && guardedblock1){
+          if(guardedblock!=guardedblock1){
+            errs()<<"first guarded block:\n"<<*guardedblock<<"\nsecond guarded block:\n"<<*guardedblock1<<"\n";
+            if(isEqual(guardedblock,guardedblock1)){
+              errs()<<"find two guarded loop \n"<<*guardedblock<<"\nAND\n"<<*guardedblock1<<"\n They are equals in the condition\n";
+              if(AdjacencyCheckForGuardedLoop(Loop,Loop1,guardedblock,guardedblock1)){
+                errs()<<"find adjacency on "<<*Loop->getHeader()<<" and "<<*Loop1->getHeader()<<"\n";
+                errs()<<"Verifying the dominance\n";
+                if (DT.dominates(guardedblock, guardedblock1) && PDT.dominates(guardedblock1, guardedblock)) {
+                  errs() <<*guardedblock <<" dominates"<<*guardedblock1<<"\n"<<*guardedblock1<<" post-dominates "<<*guardedblock<<"\n";
+                  if(HaveSameLoopCount(Loop,Loop1,SE)){
+                    errs()<<"have same trip count\n";
+                    if(!HasNegativeDependence(Loop,Loop1,DI,SE)){
+                      errs()<<"There is no negative dependence between two loop\n";
+                      LoopFusionList.push_back({Loop,Loop1});
+
+                      /*
+                      PHINode* inductionL1=getInductionVariable(Loop);
+                      PHINode* inductionL2=getInductionVariable(Loop1);
+                      inductionL2->replaceAllUsesWith(inductionL1);
+                      */
+                    }
+                    else
+                    {
+                      errs()<<"There is negative dependences between two loop\n";
+                    }
+
+                  }
+                  
+
+                  
+                }
+              }
+              else{
+                errs()<<"Two loop aren't adjacent\n";
+              }
+            }
+            else{
+              errs()<<"The two guarded block aren't same\n";
+            } 
+          }
+          else{
+            allNoGuardFlag=1;
+          }
+        }
+        else if( !guardedblock && !guardedblock1)
+        {
+          allNoGuardFlag=1;
+        }
+        if(allNoGuardFlag==1)
+        {
+          errs()<<"both not guarded\n";
+          errs()<<Loop<<"\n"<<Loop1<<"\n";
+          if(AdjacencyCheckForLoop(Loop,Loop1)){
+            errs()<<"find adjacency on "<<*Loop->getHeader()<<" and "<<*Loop1->getHeader()<<"\n";
+            if (DT.dominates(Loop->getHeader(), Loop1->getHeader()) && PDT.dominates(Loop1->getHeader(), Loop->getHeader())) {
+              errs() <<*Loop->getHeader() <<" dominates"<<*Loop1->getHeader()<<"\n"<<*Loop1->getHeader()<<" post-dominates "<<*Loop->getHeader()<<"\n";
+              //Count the number of backedge, return a number n, which means the loop will run n+1 times 
+              const SCEV *TripCount1 = SE.getBackedgeTakenCount(Loop);
+              const SCEV *TripCount2 = SE.getBackedgeTakenCount(Loop1);
+              //getExitCount(ExitBlock) is another version, we can know the specific number of loop executed for a loop to a specific exitblock
+              errs()<<"count for loop1: "<<*TripCount1<<"\n count for loop2: "<<*TripCount2<<"\n";
+              //if(*TripCount1->isEqual(*TripCount2)){
+              //  errs()<<"Two loop have same trip count\n";
+              if(HaveSameLoopCount(Loop,Loop1,SE)){
+                errs()<<"have same trip count\n";
+                if(!HasNegativeDependence(Loop,Loop1,DI,SE)){
+                  errs()<<"There is no negative dependence between two loop\n";
+                  LoopFusionList.push_back({Loop,Loop1});
+
+                  /*
+                  PHINode* inductionL1=getInductionVariable(Loop);
+                  PHINode* inductionL2=getInductionVariable(Loop1);
+                  inductionL2->replaceAllUsesWith(inductionL1);
+                  errs()<<"The uses replaced\n";
+                  */
+                }
+                else
+                {
+                  errs()<<"There is negative dependences between two loop\n";
+                }
+              }
+
+
+              
+            }
+            else{
+              errs()<<"No dominance\n";
+              if(DT.dominates(Loop->getHeader(), Loop1->getHeader())){
+                errs()<<"but l1\n"<<*Loop->getHeader()<<"\n dominate l2\n"<<*Loop1->getHeader()<<"\n";
+              }
+              if(PDT.dominates(Loop1->getHeader(), Loop->getHeader())){
+                errs()<<"but l2\n"<<*Loop1->getHeader()<<"\n post-dominate l1\n"<<*Loop->getHeader()<<"\n";
+              }
+            }
+          }
+          else{
+            errs()<<"They aren't adjacency\n";
+          }
+        }
+
+      }
+    }
+
+  }
+  //Code moving
+  auto Lbegin= LoopFusionList.begin();
+  auto Lend=LoopFusionList.end();
+  while(Lbegin != Lend){
+    Loop* L1 = Lbegin->L1;
+    Loop* L2 = Lbegin->L2;
+    errs()<<"L1\n"<<*L1<<"\nL2\n"<<*L2<<"\n";
+    BasicBlock* guardedblock1 = IsGuardedBlock(L1,Worklist);
+    BasicBlock* guardedblock2 = IsGuardedBlock(L2,Worklist);
+    if(guardedblock1 && guardedblock2 && allNoGuardFlag==0){
+      LoopFusionForGuarded(L1,L2,Worklist,LI,DT,guardedblock1,guardedblock2);
+
+    }
+    else{
+      LoopFusion(L1,L2,Worklist,LI,DT);
+    } 
+    ++Lbegin;
+  }
+
+
+  DT.recalculate(F);  // Build the dominator tree for F
+  PDT.recalculate(F); // Build the postdominator tree for F
+  LI.releaseMemory(); // Clear old loop info
+  LI.analyze(DT);     // Recompute LoopInfo with the dominator tree
+
+}
+void fusionCircle(int currentlevel,Loop* L,LoopInfo &LI,DominatorTree &DT,PostDominatorTree &PDT,DependenceInfo &DI, ScalarEvolution &SE,Function &F){
+  SmallVector<Loop *, 8> list;
+  list.clear();
+  if(L->getLoopDepth()+1 == currentlevel){
+    for(Loop* Subloop: L->getSubLoops()){
+      list.push_back(Subloop);
+    }
+    loop_fusion(list,LI,DT,PDT,DI,SE,F);
+  }
+  else if(L->getLoopDepth()+1 < currentlevel) {
+    for(Loop* Subloop: L->getSubLoops()){
+      fusionCircle(currentlevel,Subloop,LI,DT,PDT,DI,SE,F);
+    }
+  }
+}
 namespace {
 
 
@@ -805,15 +1356,15 @@ namespace {
 struct LocalOpts: PassInfoMixin<LocalOpts> {
  
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM) {
-
+    errs()<<"Function name\n"<<F.getName()<<"\n";
     SmallVector<Loop *, 8> Worklist;
-
-    SmallVector<PairOfLoop, 8> LoopFusionList;
-    LoopInfo &LI = AM.getResult<LoopAnalysis>(F);
     DominatorTree &DT = AM.getResult<DominatorTreeAnalysis>(F);
     PostDominatorTree &PDT = AM.getResult<PostDominatorTreeAnalysis>(F);
     DependenceInfo &DI =AM.getResult<DependenceAnalysis>(F);
     ScalarEvolution &SE =AM.getResult<ScalarEvolutionAnalysis>(F);
+      
+    LoopInfo &LI = AM.getResult<LoopAnalysis>(F);
+
     
     //adiacent 
     /*
@@ -825,134 +1376,37 @@ struct LocalOpts: PassInfoMixin<LocalOpts> {
     Se i loop non sono guarded l’exit block di L0 deve essere il
     preheader di L1
     */
-
+   int LoopsDepth=0,currentLevel=2;
+    for (Loop *TopLevelLoop : LI)
+      for (Loop *L : depth_first(TopLevelLoop))
+      // We only handle inner-most loops.
+        if (L->isInnermost())
+          LoopsDepth=L->getLoopDepth();
+    if(LoopsDepth){
+      errs()<<"loop innermost depth: "<<LoopsDepth<<"\n";
+    }
+    else{
+      errs()<<"Non loop found\n";
+      return PreservedAnalyses::none() ;
+    }
+    //first level is guaranted
     for (auto *L : LI){
+      errs()<<"loop:\n"<<*L<<"\n";
       Worklist.push_back(L);
     }
-    for (auto *Loop : Worklist) {
-      for(auto *Loop1 : Worklist){
-        if(Loop != Loop1){
-          errs()<<"begin comparison\n";
-          BasicBlock* guardedblock=IsGuardedBlock(Loop,Worklist);
-          BasicBlock* guardedblock1=IsGuardedBlock(Loop1,Worklist);
-          if(guardedblock){
-            errs()<<"first is guraded\n";
-          }
-          else{
-            errs()<<"first is not guraded\n";
-          }
-
-          if(guardedblock1){
-            errs()<<"second is guarded\n";
-          }
-          else{
-            errs()<<"second is not guraded\n";
-          }
-
-          if(guardedblock && guardedblock1){
-              errs()<<"first guarded block:\n"<<*guardedblock<<"\nsecond guarded block:\n"<<*guardedblock1<<"\n";
-              if(isEqual(guardedblock,guardedblock1)){
-                errs()<<"find two guarded loop \n"<<*guardedblock<<"\nAND\n"<<*guardedblock1<<"\n They are equals in the condition\n";
-                if(AdjacencyCheckForGuardedLoop(Loop,Loop1,guardedblock,guardedblock1)){
-                  errs()<<"find adjacency on "<<*Loop->getHeader()<<" and "<<*Loop1->getHeader()<<"\n";
-                  errs()<<"Verifying the dominance\n";
-                  if (DT.dominates(guardedblock, guardedblock1) && PDT.dominates(guardedblock1, guardedblock)) {
-                    errs() <<*guardedblock <<" dominates"<<*guardedblock1<<"\n"<<*guardedblock1<<" post-dominates "<<*guardedblock<<"\n";
-                    if(HaveSameLoopCount(Loop,Loop1,SE)){
-                      errs()<<"have same trip count\n";
-                      if(!HasNegativeDependence(Loop,Loop1,DI,SE)){
-                        errs()<<"There is no negative dependence between two loop\n";
-                        LoopFusionList.push_back({Loop,Loop1});
-
-                        /*
-                        PHINode* inductionL1=getInductionVariable(Loop);
-                        PHINode* inductionL2=getInductionVariable(Loop1);
-                        inductionL2->replaceAllUsesWith(inductionL1);
-                        */
-                      }
-                      else
-                      {
-                        errs()<<"There is negative dependences between two loop\n";
-                      }
-
-                    }
-                    
-
-                    
-                  }
-                }
-              }
-              else{
-                errs()<<"The two guarded block aren't same\n";
-              } 
-          }
-          else if( !guardedblock && !guardedblock1)
-          {
-            errs()<<"both not guarded\n";
-            if(AdjacencyCheckForLoop(Loop,Loop1)){
-              errs()<<"find adjacency on "<<*Loop->getHeader()<<" and "<<*Loop1->getHeader()<<"\n";
-              if (DT.dominates(Loop->getHeader(), Loop1->getHeader()) && PDT.dominates(Loop1->getHeader(), Loop->getHeader())) {
-                errs() <<*Loop->getHeader() <<" dominates"<<*Loop1->getHeader()<<"\n"<<*Loop1->getHeader()<<" post-dominates "<<*Loop->getHeader()<<"\n";
-                //Count the number of backedge, return a number n, which means the loop will run n+1 times 
-                const SCEV *TripCount1 = SE.getBackedgeTakenCount(Loop);
-                const SCEV *TripCount2 = SE.getBackedgeTakenCount(Loop1);
-                //getExitCount(ExitBlock) is another version, we can know the specific number of loop executed for a loop to a specific exitblock
-                errs()<<"count for loop1: "<<*TripCount1<<"\n count for loop2: "<<*TripCount2<<"\n";
-                //if(*TripCount1->isEqual(*TripCount2)){
-                //  errs()<<"Two loop have same trip count\n";
-                if(HaveSameLoopCount(Loop,Loop1,SE)){
-                  errs()<<"have same trip count\n";
-                  if(!HasNegativeDependence(Loop,Loop1,DI,SE)){
-                    errs()<<"There is no negative dependence between two loop\n";
-                    LoopFusionList.push_back({Loop,Loop1});
-
-                    /*
-                    PHINode* inductionL1=getInductionVariable(Loop);
-                    PHINode* inductionL2=getInductionVariable(Loop1);
-                    inductionL2->replaceAllUsesWith(inductionL1);
-                    errs()<<"The uses replaced\n";
-                    */
-                  }
-                  else
-                  {
-                    errs()<<"There is negative dependences between two loop\n";
-                  }
-                }
-
-
-                
-              }
-            }
-            errs()<<"They aren't adjacent\n";
-          }
-
-        }
+    loop_fusion(Worklist,LI,DT,PDT,DI,SE,F);
+    
+    //the inner level check
+    while(currentLevel<=LoopsDepth){
+      errs()<<"Working at level "<<currentLevel<<"\n"<<"Innermost level is"<<LoopsDepth<<"\n";
+      for (auto *L : LI){
+        errs()<<"looking subloop for loop:\n"<<*L<<"\n";
+        fusionCircle(currentLevel,L,LI,DT,PDT,DI,SE,F);
       }
-
-    }
-    //Code moving
-    auto Lbegin= LoopFusionList.begin();
-    auto Lend=LoopFusionList.end();
-    while(Lbegin != Lend){
-      Loop* L1 = Lbegin->L1;
-      Loop* L2 = Lbegin->L2;
-      BasicBlock* guardedblock1 = IsGuardedBlock(L1,Worklist);
-      BasicBlock* guardedblock2 = IsGuardedBlock(L2,Worklist);
-      if(guardedblock1 && guardedblock2){
-        LoopFusionForGuarded(L1,L2,Worklist,LI,DT,guardedblock1,guardedblock2);
-      }
-      else{
-        LoopFusion(L1,L2,Worklist,LI,DT);
-      }
-
-
-
       
-
-      
-      ++Lbegin;
+      currentLevel++;
     }
-
+    
     return PreservedAnalyses::all();
   }
   
